@@ -12,7 +12,7 @@ import pyqtgraph as pg
 
 import brainflow
 from brainflow.board_shim import BoardShim, BrainFlowInputParams, LogLevels, BoardIds
-from brainflow.data_filter import DataFilter, FilterTypes, AggOperations, WindowFunctions
+from brainflow.data_filter import DataFilter, FilterTypes, AggOperations, WindowFunctions, DetrendOperations
 from brainflow.ml_model import MLModel, BrainFlowMetrics, BrainFlowClassifiers, BrainFlowModelParams
 
 import pandas as pd
@@ -20,6 +20,7 @@ import numpy as np
 
 from serial_connection import SerialConnectionWidget
 from monitor import Monitor
+from concentration_monitor import ConcentrationMonitor
 from denoising_config import DenoisingConfigWidget
 
 class SessionMainWindow(qtw.QMainWindow):
@@ -30,6 +31,7 @@ class SessionMainWindow(qtw.QMainWindow):
 
         # Brainflow Parameters
         self.board = None
+        self.board_id = 0
         self.params = BrainFlowInputParams()
         self.board_available = False
 
@@ -44,6 +46,7 @@ class SessionMainWindow(qtw.QMainWindow):
         # Initialize Monitors
         self.raw_monitor = Monitor('Session Raw Monitor')
         self.processed_monitor = Monitor('Session Processed Monitor')
+        self.concentration_monitor = ConcentrationMonitor()
 
         # MenuBar Initialization
         menubar = self.menuBar()
@@ -53,6 +56,10 @@ class SessionMainWindow(qtw.QMainWindow):
         options_menu.addAction('Synthetic', self.initialize_synthetic_session)
         options_menu.addAction('Denoising Configuration', self.denoising_wdg.show)
 
+        # TODO: Add Monitor menu
+        # TODO: Add concentration menu
+        concentration_menu = menubar.addMenu('Concentration')
+        concentration_menu.addAction('Monitor', self.concentration_monitor.show)
 
         self.session_timer = qtc.QTimer()
         self.session_timer.timeout.connect(self.session_update)
@@ -65,7 +72,65 @@ class SessionMainWindow(qtw.QMainWindow):
         self.denoising_method = ''
         self.denoising_decompose_level = 0
 
+        # Classification params
+        self.power_2_of = 0
+        self.classification_timer = qtc.QTimer()
+        self.classification_timer.timeout.connect(self.concentration_classification)
+
+        self.concentration_monitor.startSignal.connect(self.classification_timer.start)
+        self.concentration_monitor.stopSignal.connect(self.classification_timer.stop)
+
         self.show()
+
+    def start_classification(self, t):
+        print(t)
+    def concentration_classification(self):
+        #print('start classification')
+        # TODO: Merge buffer arrays
+        # TODO: Initializations, Create feature_vector, Data Filter
+        # TODO: Calculate concentration
+        master_board_id = int(self.board_id)
+        sampling_rate = BoardShim.get_sampling_rate(self.board_id)
+        eeg_channels = BoardShim.get_eeg_channels(master_board_id)
+        nfft = DataFilter.get_nearest_power_of_two(sampling_rate)
+
+        # Get band powers
+        bp_buffer = self.processed_buffer[:, -self.power_2_of:]
+        theta_sum = 0
+        alpha_sum = 0
+        beta_sum = 0
+
+        for i in range(8):
+            current_channel = eeg_channels[i]
+            # optional detrend
+            DataFilter.detrend(bp_buffer[current_channel], DetrendOperations.LINEAR.value)
+            psd = DataFilter.get_psd_welch(bp_buffer[current_channel], nfft, nfft // 2, sampling_rate,
+                                           WindowFunctions.BLACKMAN_HARRIS.value)
+
+            theta_sum += DataFilter.get_band_power(psd, 3.0, 7.0)
+            alpha_sum += DataFilter.get_band_power(psd, 8.0, 13.0)
+            beta_sum += DataFilter.get_band_power(psd, 14.0, 30.0)
+
+        # Update band power monitor
+        self.concentration_monitor.bandpower_graph.update(theta_sum/8, alpha_sum/8, beta_sum/8)
+
+        # Concentration Classification
+        bands = DataFilter.get_avg_band_powers(self.processed_buffer, eeg_channels, sampling_rate, True)
+        feature_vector = np.concatenate((bands[0], bands[1]))
+        print(feature_vector)
+        # KNN, SWM, REGRESSION
+        concentration_params = BrainFlowModelParams(BrainFlowMetrics.CONCENTRATION.value, BrainFlowClassifiers.KNN.value)
+        concentration = MLModel(concentration_params)
+        concentration.prepare()
+        concentration_result = concentration.predict(feature_vector)
+        print('Concentration: %f' % concentration_result)
+        concentration.release()
+
+        # Update Value monitor
+        self.concentration_monitor.value_graph.update(concentration_result)
+        #self.classification_buffer_initialized = False
+        # self.classification_buffer = None
+
 
     def apply_denoising_config(self, wavelet, decompose):
         self.denoising_method = wavelet
@@ -105,6 +170,7 @@ class SessionMainWindow(qtw.QMainWindow):
             firstPowerOf2 = nextPowerOf2
             nextPowerOf2 = nextPowerOf2 * 2
         psd_buffer = psd_buffer[:, -firstPowerOf2:]
+        self.power_2_of = firstPowerOf2
 
         # Create PSD data
         psd_data = []
@@ -158,6 +224,7 @@ class SessionMainWindow(qtw.QMainWindow):
         time.sleep(self.initial_sleep)
         self.board_available = True
         self.session_timer.start(40)
+        self.serial_connection_wdg.close()
 
     def initialize_synthetic_session(self):
         print('start synthetic session')

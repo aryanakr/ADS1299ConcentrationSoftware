@@ -5,6 +5,7 @@ class SerialConnectionWidget(qtw.QWidget):
 
     def __init__(self):
         super().__init__()
+        self.setWindowTitle('Serial Connection')
         self.form = Ui_serialConnectionForm()
         self.form.setupUi(self)
 

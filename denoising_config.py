@@ -6,6 +6,7 @@ class DenoisingConfigWidget(qtw.QWidget):
     submitted = qtc.pyqtSignal(str, int)
     def __init__(self):
         super().__init__()
+        self.setWindowTitle('Wavelet Denoising Configuration')
         self.form = Ui_dataProcessingConfigurationForm()
         self.form.setupUi(self)
         self.form.pushButton.clicked.connect(self.apply_denoise)

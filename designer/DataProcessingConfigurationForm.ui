@@ -476,7 +476,7 @@
     <string>bior4.4</string>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton">
+  <widget class="QPushButton" name="applyBtn">
    <property name="geometry">
     <rect>
      <x>190</x>
