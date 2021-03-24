@@ -22,6 +22,7 @@ from serial_connection import SerialConnectionWidget
 from monitor import Monitor
 from concentration_monitor import ConcentrationMonitor
 from denoising_config import DenoisingConfigWidget
+from dmc_mod import DMCMod
 
 class SessionMainWindow(qtw.QMainWindow):
 
@@ -35,7 +36,7 @@ class SessionMainWindow(qtw.QMainWindow):
         self.params = BrainFlowInputParams()
         self.board_available = False
 
-        self.initial_sleep = 4
+        self.initial_sleep = 7
         # Initialize Widgets and Windows
         self.serial_connection_wdg = SerialConnectionWidget()
         self.serial_connection_wdg.form.startButton.clicked.connect(self.initialize_serial_session)
@@ -43,6 +44,7 @@ class SessionMainWindow(qtw.QMainWindow):
         self.denoising_wdg = DenoisingConfigWidget()
         self.denoising_wdg.submitted.connect(self.apply_denoising_config)
 
+        self.dmc_mod_window = DMCMod()
         # Initialize Monitors
         self.raw_monitor = Monitor('Session Raw Monitor')
         self.processed_monitor = Monitor('Session Processed Monitor')
@@ -60,6 +62,9 @@ class SessionMainWindow(qtw.QMainWindow):
         # TODO: Add concentration menu
         concentration_menu = menubar.addMenu('Concentration')
         concentration_menu.addAction('Monitor', self.concentration_monitor.show)
+
+        games_menu = menubar.addMenu('Game Mods')
+        games_menu.addAction('DMC5', self.dmc_mod_window.show)
 
         self.session_timer = qtc.QTimer()
         self.session_timer.timeout.connect(self.session_update)
@@ -82,20 +87,15 @@ class SessionMainWindow(qtw.QMainWindow):
 
         self.show()
 
-    def start_classification(self, t):
-        print(t)
     def concentration_classification(self):
-        #print('start classification')
-        # TODO: Merge buffer arrays
-        # TODO: Initializations, Create feature_vector, Data Filter
-        # TODO: Calculate concentration
         master_board_id = int(self.board_id)
         sampling_rate = BoardShim.get_sampling_rate(self.board_id)
         eeg_channels = BoardShim.get_eeg_channels(master_board_id)
         nfft = DataFilter.get_nearest_power_of_two(sampling_rate)
 
         # Get band powers
-        bp_buffer = self.processed_buffer[:, -self.power_2_of:]
+        tmp_buffer = self.processed_buffer.copy()
+        bp_buffer = tmp_buffer[:, -self.power_2_of:]
         theta_sum = 0
         alpha_sum = 0
         beta_sum = 0
@@ -122,12 +122,14 @@ class SessionMainWindow(qtw.QMainWindow):
         concentration_params = BrainFlowModelParams(BrainFlowMetrics.CONCENTRATION.value, BrainFlowClassifiers.KNN.value)
         concentration = MLModel(concentration_params)
         concentration.prepare()
+        print(self.processed_buffer.shape)
         concentration_result = concentration.predict(feature_vector)
         print('Concentration: %f' % concentration_result)
         concentration.release()
 
         # Update Value monitor
         self.concentration_monitor.value_graph.update(concentration_result)
+        self.dmc_mod_window.current_eeg_concentration = concentration_result
         #self.classification_buffer_initialized = False
         # self.classification_buffer = None
 
@@ -138,9 +140,7 @@ class SessionMainWindow(qtw.QMainWindow):
 
     def session_update(self):
         # print('session update')
-        # board params
-        sampling_rate = BoardShim.get_sampling_rate(self.board_id)
-        eeg_channels = BoardShim.get_eeg_channels(self.board_id)
+
         # Get current data
         current_data = self.board.get_board_data()
 
@@ -153,6 +153,9 @@ class SessionMainWindow(qtw.QMainWindow):
             self.data_buffer = self.data_buffer[:, current_data.shape[1]:]
             self.data_buffer = np.hstack([self.data_buffer, current_data])
 
+        # board params
+        sampling_rate = BoardShim.get_sampling_rate(self.board_id)
+        eeg_channels = BoardShim.get_eeg_channels(self.board_id)
         # Raw data monitor update
         raw_eeg = []
         for count, channel in enumerate(eeg_channels):
@@ -186,7 +189,10 @@ class SessionMainWindow(qtw.QMainWindow):
 
         # Data processing
         self.processed_buffer = self.data_buffer.copy()
-        if not self.denoising_method == '':
+        if self.denoising_method == '':
+            for count, channel in enumerate(eeg_channels):
+                DataFilter.perform_rolling_filter(self.processed_buffer[channel], 3, AggOperations.MEAN.value)
+        else:
             for count, channel in enumerate(eeg_channels):
                 DataFilter.perform_wavelet_denoising(self.processed_buffer[channel], self.denoising_method, self.denoising_decompose_level)
 
@@ -198,7 +204,8 @@ class SessionMainWindow(qtw.QMainWindow):
         self.processed_monitor.update_waveform(processed_data)
 
         # Update PSD monitor
-        psd_buffer = self.processed_buffer[:, -firstPowerOf2:]
+        tmp_buffer = self.processed_buffer.copy()
+        psd_buffer = tmp_buffer[:, -firstPowerOf2:]
 
         # Create PSD data
         psd_data = []
@@ -221,7 +228,7 @@ class SessionMainWindow(qtw.QMainWindow):
         self.board.prepare_session()
         self.board.start_stream()
         BoardShim.log_message(LogLevels.LEVEL_INFO.value, 'start sleeping in the main thread')
-        time.sleep(self.initial_sleep)
+        time.sleep(7)
         self.board_available = True
         self.session_timer.start(40)
         self.serial_connection_wdg.close()

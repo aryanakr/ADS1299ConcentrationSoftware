@@ -49,10 +49,7 @@ class Monitor(qtgr.GraphicsWindow):
 
         # PSD parameters
         self.graph_psd = self.addPlot(title='PSD', row=4, col=2, colspan=1, rowspan=2)
-        print(type(self.graph_psd))
-        pix_rect = qtc.QRectF(0.0, 0.0, 1200, 500)
-        self.graph_psd.viewRect = pix_rect
-        self.graph_psd.setRange(yRange=[0, 20])
+        self.graph_psd.setRange(yRange=[0, 5])
 
 
     def start(self):

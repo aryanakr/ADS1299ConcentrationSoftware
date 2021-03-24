@@ -52,6 +52,7 @@ class ConcentrationValueMonitor(qtch.QChartView):
     chart_title = 'Concentration Value'
     num_data_points = 25
     offset = 2
+
     def __init__(self):
         super().__init__()
         chart = qtch.QChart(title=self.chart_title)
@@ -81,7 +82,7 @@ class ConcentrationValueMonitor(qtch.QChartView):
 
 
 class BandPowerMonitor(qtch.QChartView):
-    chart_title = 'Frequencies Band Power'
+    chart_title = 'Average Frequencies Band Power'
 
     def __init__(self):
         super().__init__()
@@ -91,7 +92,7 @@ class BandPowerMonitor(qtch.QChartView):
 
         self.series = qtch.QBarSeries()
         chart.addSeries(self.series)
-        self.bar_set = qtch.QBarSet('Band Power')
+        self.bar_set = qtch.QBarSet('Average Band Power')
         self.series.append(self.bar_set)
 
         # theta:4-8, 8-12, 12-30
